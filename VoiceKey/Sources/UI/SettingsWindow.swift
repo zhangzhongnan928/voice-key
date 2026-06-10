@@ -1,5 +1,6 @@
 import AppKit
 import KeyboardShortcuts
+import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
@@ -108,6 +109,20 @@ struct SettingsView: View {
             }
             Toggle("Keep audio files after transcription", isOn: binding(\.keepAudio))
             Toggle("Sounds", isOn: binding(\.soundsEnabled))
+            Toggle("Launch at login", isOn: Binding(
+                get: { SMAppService.mainApp.status == .enabled },
+                set: { enable in
+                    do {
+                        if enable {
+                            try SMAppService.mainApp.register()
+                        } else {
+                            try SMAppService.mainApp.unregister()
+                        }
+                    } catch {
+                        Log.app.error("login item toggle failed: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+            ))
         }
     }
 

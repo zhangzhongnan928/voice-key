@@ -65,7 +65,7 @@ final class RecordingHUDController {
 
         let panel = NSPanel(
             contentRect: hosting.frame,
-            styleMask: [.nonactivatingPanel, .borderless, .hudWindow],
+            styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
         )

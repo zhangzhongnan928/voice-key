@@ -1,0 +1,26 @@
+# Build artifacts
+build/
+DerivedData/
+dist/
+.build/
+.swiftpm/
+
+# XcodeGen output (regenerate with `xcodegen generate`)
+*.xcodeproj
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+
+# Audio fixtures / scratch recordings
+*.wav
+*.m4a
+*.caf
+
+# Secrets
+.env
+*.p12
+*.cer
+
+# macOS
+.DS_Store

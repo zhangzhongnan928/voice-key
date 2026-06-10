@@ -344,29 +344,60 @@ final class AppController {
         _ = AXIsProcessTrustedWithOptions(options)
     }
 
-    // MARK: UI hooks (placeholder until M4 Settings/History windows)
+    // MARK: Settings & History windows
+
+    private var settingsWindow: SettingsWindowController?
+    private var historyPopover: HistoryPopoverController?
 
     func openSettings() {
-        let alert = NSAlert()
-        alert.messageText = "OpenAI API Key"
-        alert.informativeText = "Stored in the macOS Keychain. Full settings UI arrives in M4."
-        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        field.placeholderString = "sk-..."
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        if alert.runModal() == .alertFirstButtonReturn {
-            keychain.setAPIKey(field.stringValue)
+        if settingsWindow == nil {
+            settingsWindow = SettingsWindowController { [self] in
+                SettingsView(settings: settings, keychain: keychain, client: client)
+            }
         }
+        settingsWindow?.show()
     }
 
     func openHistory() {
-        // History popover lands in M4.
+        if historyPopover == nil {
+            historyPopover = HistoryPopoverController(store: store) { [settings] in
+                max(settings.historyLimit, 1)
+            }
+            historyPopover?.model.actions = self
+        }
+        historyPopover?.toggle(relativeTo: statusItem.button)
     }
 
     func playSound(_ name: String) {
         guard settings.soundsEnabled else { return }
         NSSound(named: NSSound.Name(name))?.play()
+    }
+}
+
+// MARK: - History row actions
+
+extension AppController: HistoryActions {
+    func historyCopy(item: TranscriptItem) {
+        guard let text = item.text else { return }
+        inserter.setClipboard(text)
+    }
+
+    func historyReinsert(item: TranscriptItem) {
+        guard let id = item.id else { return }
+        // Close the popover first so focus returns to the previous app.
+        historyPopover?.toggle(relativeTo: statusItem.button)
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(300)) { [weak self] in
+            self?.reinsertItem(id: id)
+        }
+    }
+
+    func historyRetry(item: TranscriptItem) {
+        guard let id = item.id else { return }
+        retryItem(id: id)
+    }
+
+    func historyDelete(item: TranscriptItem) {
+        guard let id = item.id else { return }
+        try? store.delete(id: id)
     }
 }

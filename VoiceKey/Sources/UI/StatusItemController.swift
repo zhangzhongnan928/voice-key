@@ -18,6 +18,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
 
+    /// Anchor for the History popover.
+    var button: NSStatusBarButton? { statusItem.button }
+
     var onToggleRecording: (() -> Void)?
     var onOpenHistory: (() -> Void)?
     var onOpenSettings: (() -> Void)?

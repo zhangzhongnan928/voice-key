@@ -158,6 +158,15 @@ final class TranscriptStore {
         }
     }
 
+    /// Manual retry from History: failed -> queued with a fresh retry budget.
+    @discardableResult
+    func manualRetry(id: Int64) throws -> TranscriptItem {
+        try transition(id: id, to: .queued) {
+            $0.retryCount = 0
+            $0.error = nil
+        }
+    }
+
     // MARK: History
 
     func recent(limit: Int, search: String? = nil) throws -> [TranscriptItem] {

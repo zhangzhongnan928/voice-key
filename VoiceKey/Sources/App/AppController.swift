@@ -14,6 +14,7 @@ final class AppController {
     let client = TranscriberClient()
     let statusItem = StatusItemController()
     let hud = RecordingHUDController()
+    private(set) var queue: UploadQueue!
 
     /// Row id of the in-flight recording.
     private var currentItemID: Int64?
@@ -22,7 +23,6 @@ final class AppController {
     /// auto-inserted).
     private var pendingInsertID: Int64?
     private var lastTranscript: String?
-    private var isProcessing = false
 
     private let audioDirectory: URL
 
@@ -32,6 +32,20 @@ final class AppController {
             .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             .appendingPathComponent("VoiceKey/audio", isDirectory: true)
         try FileManager.default.createDirectory(at: audioDirectory, withIntermediateDirectories: true)
+
+        queue = UploadQueue(
+            store: store,
+            client: client,
+            apiKeyProvider: { [keychain] in keychain.apiKey() },
+            paramsProvider: { [settings] in
+                UploadQueue.RequestParams(
+                    model: settings.model.rawValue,
+                    language: settings.language.isEmpty ? nil : settings.language,
+                    prompt: settings.vocabularyPrompt.isEmpty ? nil : settings.vocabularyPrompt
+                )
+            }
+        )
+        queue.onEvent = { [weak self] event in self?.handleQueueEvent(event) }
     }
 
     func start() {
@@ -41,6 +55,16 @@ final class AppController {
         Notifier.shared.requestAuthorization()
         requestMicPermissionIfNeeded()
         promptForAccessibilityIfNeeded()
+
+        // Crash recovery: resume every non-terminal item, then start the
+        // queue (kill -9 during upload + relaunch must complete the item).
+        do {
+            try store.recoverOnLaunch()
+        } catch {
+            Log.store.error("recovery failed: \(error.localizedDescription, privacy: .public)")
+        }
+        queue.start()
+
         if keychain.apiKey() == nil {
             Notifier.shared.post(
                 title: "VoiceKey needs an API key",
@@ -163,7 +187,7 @@ final class AppController {
             let item = try store.transition(id: id, to: .queued) { $0.durationS = duration }
             pendingInsertID = item.id
             statusItem.setIcon(.uploading)
-            processQueue()
+            queue.kick()
         } catch {
             Log.store.error("queueing failed: \(error.localizedDescription, privacy: .public)")
             statusItem.setIcon(.error)
@@ -193,56 +217,27 @@ final class AppController {
         }
     }
 
-    // MARK: Upload processing (M2 happy path; durable queue lands in M3)
+    // MARK: Queue events
 
-    func processQueue() {
-        guard !isProcessing else { return }
-        isProcessing = true
-        Task { @MainActor in
-            defer { self.isProcessing = false }
-            while let item = try? self.store.nextQueued(), let id = item.id {
-                await self.process(item: item, id: id)
+    private func handleQueueEvent(_ event: UploadQueue.Event) {
+        switch event {
+        case .uploading:
+            statusItem.setIcon(.uploading)
+        case .transcribed(let item, let text):
+            if let id = item.id {
+                complete(id: id, item: item, text: text)
             }
-            self.statusItem.setIcon(.idle)
-        }
-    }
-
-    private func process(item: TranscriptItem, id: Int64) async {
-        guard let apiKey = keychain.apiKey() else {
-            try? store.transition(id: id, to: .failed) { $0.error = TranscriberError.noAPIKey.localizedDescription }
-            return
-        }
-        guard let audioURL = item.audioURL else {
-            try? store.transition(id: id, to: .failed) { $0.error = "Audio file missing." }
-            return
-        }
-        do {
-            try store.transition(id: id, to: .uploading)
-            let uploadURL = try prepareUpload(item: item, audioURL: audioURL)
-            let text = try await client.transcribe(
-                fileURL: uploadURL,
-                model: settings.model.rawValue,
-                language: settings.language.isEmpty ? nil : settings.language,
-                prompt: settings.vocabularyPrompt.isEmpty ? nil : settings.vocabularyPrompt,
-                apiKey: apiKey
-            )
-            complete(id: id, item: item, text: text)
-        } catch {
-            try? store.transition(id: id, to: .failed) { $0.error = error.localizedDescription }
+        case .failedPermanently(let item):
             statusItem.setIcon(.error)
-            Notifier.shared.post(title: "Transcription failed", body: error.localizedDescription)
+            Notifier.shared.post(
+                title: "Transcription failed",
+                body: item.error ?? "Unknown error. Retry from History."
+            )
+        case .idle:
+            if !recorder.isRecording {
+                statusItem.setIcon(.idle)
+            }
         }
-    }
-
-    /// Transcodes recordings over 2 minutes to m4a before upload (F2/F3).
-    private func prepareUpload(item: TranscriptItem, audioURL: URL) throws -> URL {
-        guard item.durationS > AudioTranscoder.transcodeThresholdSeconds,
-              audioURL.pathExtension == "wav" else { return audioURL }
-        let m4aURL = audioURL.deletingPathExtension().appendingPathExtension("m4a")
-        if !FileManager.default.fileExists(atPath: m4aURL.path) {
-            try AudioTranscoder.transcodeToM4A(input: audioURL, output: m4aURL)
-        }
-        return m4aURL
     }
 
     /// Marks an item done, records cost, prunes history, inserts if it is the
@@ -264,6 +259,8 @@ final class AppController {
             Log.store.error("complete transition failed: \(error.localizedDescription, privacy: .public)")
         }
 
+        // Audio of done items is deleted unless "keep audio" is on. Failed
+        // items always keep audio (manual retry needs it).
         if !settings.keepAudio, let audioURL = item.audioURL {
             try? FileManager.default.removeItem(at: audioURL)
             let m4a = audioURL.deletingPathExtension().appendingPathExtension("m4a")
@@ -286,6 +283,31 @@ final class AppController {
             }
         }
     }
+
+    // MARK: History actions
+
+    func retryItem(id: Int64) {
+        do {
+            try store.manualRetry(id: id)
+            queue.kick()
+        } catch {
+            Log.store.error("manual retry failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func reinsertItem(id: Int64) {
+        guard let item = try? store.item(id: id), let text = item.text else { return }
+        let outcome = inserter.insert(
+            text,
+            strategy: settings.insertionStrategy,
+            clipboardRestoreDelayMs: settings.clipboardRestoreDelayMs
+        )
+        if case .clipboardFallback(let reason) = outcome {
+            Notifier.shared.post(title: "Transcript in clipboard", body: reason)
+        }
+    }
+
+    // MARK: Cost
 
     func checkCostThreshold() {
         let month = Self.monthKey(for: Date())

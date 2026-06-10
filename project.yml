@@ -1,0 +1,81 @@
+name: VoiceKey
+options:
+  bundleIdPrefix: com.victor
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    ARCHS: arm64
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    CODE_SIGN_STYLE: Automatic
+    # Sign dev builds with a stable Apple Development identity so TCC grants
+    # (Microphone, Accessibility) persist across rebuilds. Set your team:
+    #   xcodebuild ... DEVELOPMENT_TEAM=XXXXXXXXXX
+    # or fill it in here.
+    CODE_SIGN_IDENTITY: "Apple Development"
+    DEVELOPMENT_TEAM: ""
+
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    from: 6.29.3
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: 2.2.0
+
+targets:
+  VoiceKey:
+    type: application
+    platform: macOS
+    sources:
+      - VoiceKey/Sources
+    dependencies:
+      - package: GRDB
+      - package: KeyboardShortcuts
+    info:
+      path: VoiceKey/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: VoiceKey
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        LSUIElement: true
+        LSMinimumSystemVersion: "14.0"
+        NSMicrophoneUsageDescription: >-
+          VoiceKey records your voice when you press the dictation hotkey, so
+          it can be transcribed and inserted into the app you are using.
+    entitlements:
+      path: VoiceKey/Resources/VoiceKey.entitlements
+      properties:
+        # No sandbox: the app needs CGEvent posting (Accessibility) for
+        # insertion. Hardened runtime is applied at release time; mic access
+        # under hardened runtime requires the audio-input entitlement.
+        com.apple.security.app-sandbox: false
+        com.apple.security.device.audio-input: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.victor.voicekey
+        ENABLE_HARDENED_RUNTIME: false
+
+  VoiceKeyTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - VoiceKeyTests
+    dependencies:
+      - target: VoiceKey
+
+schemes:
+  VoiceKey:
+    build:
+      targets:
+        VoiceKey: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - VoiceKeyTests

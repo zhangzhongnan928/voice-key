@@ -23,6 +23,11 @@ final class TranscriptStore {
 
     init(path: String) throws {
         dbQueue = try DatabaseQueue(path: path)
+        // WAL so a second process (the iOS keyboard extension) can read
+        // while the app writes. Harmless for the single-process macOS app.
+        try dbQueue.write { db in
+            _ = try String.fetchOne(db, sql: "PRAGMA journal_mode = WAL")
+        }
         try migrate()
     }
 
@@ -55,6 +60,17 @@ final class TranscriptStore {
             try db.alter(table: "items") { t in
                 t.add(column: "app_name", .text)
                 t.add(column: "stopped_at", .datetime)
+            }
+        }
+        migrator.registerMigration("v3") { db in
+            // iOS handoff: consume-once auto-insert flag for the keyboard
+            // extension (single row, replaced on each new transcript).
+            try db.create(table: "pending_insert") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("transcript_id", .integer).notNull()
+                t.column("text", .text).notNull()
+                t.column("created_at", .datetime).notNull()
+                t.column("consumed_at", .datetime)
             }
         }
         try migrator.migrate(dbQueue)

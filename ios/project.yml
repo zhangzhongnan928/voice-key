@@ -1,0 +1,118 @@
+name: VoiceKeyiOS
+options:
+  bundleIdPrefix: com.victor
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "17.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+    TARGETED_DEVICE_FAMILY: "1,2"   # universal iPhone + iPad
+
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    from: 6.29.3
+
+# Shared sources are referenced from the desktop tree — single source of
+# truth for the state machine, queue, client, recorder, and settings.
+targetTemplates: {}
+
+targets:
+  VoiceKeyiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/Sources
+      - path: Shared
+      - path: ../VoiceKey/Sources/Support/Log.swift
+      - path: ../VoiceKey/Sources/Support/Notifier.swift
+      - path: ../VoiceKey/Sources/Store/ItemState.swift
+      - path: ../VoiceKey/Sources/Store/TranscriptItem.swift
+      - path: ../VoiceKey/Sources/Store/TranscriptStore.swift
+      - path: ../VoiceKey/Sources/Store/PendingInsert.swift
+      - path: ../VoiceKey/Sources/Transcribe/RetryPolicy.swift
+      - path: ../VoiceKey/Sources/Transcribe/TranscriberClient.swift
+      - path: ../VoiceKey/Sources/Transcribe/UploadQueue.swift
+      - path: ../VoiceKey/Sources/Recording/Recorder.swift
+      - path: ../VoiceKey/Sources/Recording/AudioTranscoder.swift
+      - path: ../VoiceKey/Sources/Cost/CostMeter.swift
+      - path: ../VoiceKey/Sources/Insert/FocusGuard.swift
+      - path: ../VoiceKey/Sources/Settings/SettingsStore.swift
+      - path: ../VoiceKey/Sources/Settings/KeychainStore.swift
+    dependencies:
+      - package: GRDB
+      - target: VoiceKeyBoard
+    info:
+      path: App/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: VoiceKey
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSMicrophoneUsageDescription: >-
+          VoiceKey records your voice when you tap the record button so it can
+          be transcribed.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.victor.voicekey-ios
+            CFBundleURLSchemes: [voicekey]
+    entitlements:
+      path: App/Resources/VoiceKeyiOS.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.victor.voicekey
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.victor.voicekey-ios
+
+  VoiceKeyBoard:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Board/Sources
+      - path: Shared
+      - path: ../VoiceKey/Sources/Support/Log.swift
+      - path: ../VoiceKey/Sources/Store/ItemState.swift
+      - path: ../VoiceKey/Sources/Store/TranscriptItem.swift
+      - path: ../VoiceKey/Sources/Store/TranscriptStore.swift
+      - path: ../VoiceKey/Sources/Store/PendingInsert.swift
+    dependencies:
+      - package: GRDB
+    info:
+      path: Board/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: VoiceKey Board
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
+          NSExtensionAttributes:
+            IsASCIICapable: false
+            PrefersRightToLeft: false
+            PrimaryLanguage: en-US
+            RequestsOpenAccess: true   # network is NOT used; open access is
+                                       # required for App Group store reads
+    entitlements:
+      path: Board/Resources/VoiceKeyBoard.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.victor.voicekey
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.victor.voicekey-ios.keyboard
+
+schemes:
+  VoiceKeyiOS:
+    build:
+      targets:
+        VoiceKeyiOS: all
+    run:
+      config: Debug

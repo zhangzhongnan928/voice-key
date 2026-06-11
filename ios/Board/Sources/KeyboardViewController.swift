@@ -66,28 +66,58 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     /// Opens the container app to record (keyboards cannot use the mic).
+    /// Tries every known opener; modern iOS quietly killed the old
+    /// responder-chain `openURL:` (the perform "succeeds", nothing opens).
+    /// The status label tags the path taken so on-device runs tell us
+    /// which one actually works.
     @objc private func micTapped() {
         guard let url = URL(string: "voicekey://record") else { return }
-        if openViaResponderChain(url) {
-            statusLabel.text = "Recording in VoiceKey — swipe back when done."
-        } else {
+
+        if let app = applicationOnResponderChain(), openViaApplication(app, url: url) {
+            statusLabel.text = "Recording in VoiceKey — swipe back when done. (A)"
+            return
+        }
+
+        guard let extensionContext else {
             statusLabel.text = "Could not open VoiceKey. Open it manually to dictate."
+            return
+        }
+        extensionContext.open(url) { [weak self] success in
+            DispatchQueue.main.async {
+                self?.statusLabel.text = success
+                    ? "Recording in VoiceKey — swipe back when done. (B)"
+                    : "Could not open VoiceKey. Open it manually to dictate."
+            }
         }
     }
 
-    /// Responder-chain openURL workaround: extensions have no UIApplication,
-    /// but a host responder up the chain implements openURL:. Fine for
-    /// TestFlight internal / Ad Hoc distribution.
-    @discardableResult
-    private func openViaResponderChain(_ url: URL) -> Bool {
-        let selector = sel_registerName("openURL:")
+    /// Walks the responder chain for the hosting UIApplication instance —
+    /// extensions can't reference UIApplication.shared at compile time, but
+    /// the instance is reachable at runtime.
+    private func applicationOnResponderChain() -> UIApplication? {
         var responder: UIResponder? = self
         while let current = responder {
-            if current.responds(to: selector) {
-                current.perform(selector, with: url)
-                return true
-            }
+            if let app = current as? UIApplication { return app }
             responder = current.next
+        }
+        return nil
+    }
+
+    /// Calls open(_:options:completionHandler:) (falling back to the legacy
+    /// openURL:) through the ObjC runtime, since both are marked unavailable
+    /// in extensions at compile time.
+    private func openViaApplication(_ app: UIApplication, url: URL) -> Bool {
+        let modern = NSSelectorFromString("openURL:options:completionHandler:")
+        if app.responds(to: modern) {
+            typealias OpenFn = @convention(c) (UIApplication, Selector, NSURL, NSDictionary, Any?) -> Void
+            let fn = unsafeBitCast(app.method(for: modern), to: OpenFn.self)
+            fn(app, modern, url as NSURL, [:], nil)
+            return true
+        }
+        let legacy = NSSelectorFromString("openURL:")
+        if app.responds(to: legacy) {
+            app.perform(legacy, with: url)
+            return true
         }
         return false
     }

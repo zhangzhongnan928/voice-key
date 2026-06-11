@@ -95,6 +95,43 @@ the text in the clipboard instead (you'll get a notification).
 Recorded audio is deleted after successful transcription unless "Keep audio"
 is on. Failed items always keep their audio so Retry can work.
 
+## iOS companion (VoiceKey + VoiceKey Board)
+
+Universal iPhone/iPad app in `ios/` with a keyboard extension. Platform
+reality (no workarounds exist): keyboard extensions cannot access the
+microphone, so all recording happens in the container app; the keyboard
+inserts results.
+
+- **Container app**: one large record button; same API spec, retry/backoff,
+  and state machine as desktop; queue and history in an App Group SQLite
+  (`group.com.victor.voicekey`, WAL mode so the keyboard can read while the
+  app writes). API key in the container app's Keychain only — the keyboard
+  never holds the key and makes no network calls.
+- **Keyboard "VoiceKey Board"** (Requests Full Access for App Group reads):
+  mic button opens the app via `voicekey://record` (responder-chain openURL
+  workaround — fine for TestFlight internal/Ad Hoc), Insert-latest button,
+  status line, globe key. After a keyboard-initiated dictation completes,
+  the app arms a consume-once `pendingInsert` (10 min TTL) and shows a
+  "swipe back" banner; on keyboard reappearance the transcript inserts
+  exactly once. Expired or consumed entries never auto-insert.
+- Secure/phone-number fields fall back to the system keyboard — Apple
+  platform behavior, by design.
+
+Build: `cd ios && xcodegen generate && open VoiceKeyiOS.xcodeproj`, set your
+team on both targets, run on device. Manual test plan:
+[docs/QA-device.md](docs/QA-device.md).
+
+### Distribution (TestFlight internal testing)
+
+1. Archive VoiceKeyiOS in Xcode (paid developer account), upload to
+   App Store Connect.
+2. App Store Connect → Users and Access → add **Cindy** as a team user
+   (role: Developer or Marketing is enough) so she qualifies as an
+   **internal tester** — internal testing needs no App Review.
+3. TestFlight → Internal Testing → add both users → builds appear within
+   minutes of upload.
+4. Builds expire after 90 days: re-upload quarterly.
+
 ## M1 CLI spike
 
 A standalone end-to-end check lives in `voicekey-cli/`:

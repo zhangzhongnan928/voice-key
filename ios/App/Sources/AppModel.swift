@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import Foundation
 import SwiftUI
 
@@ -29,6 +30,7 @@ final class AppModel: ObservableObject {
     let client = TranscriberClient()
     private(set) var queue: UploadQueue!
 
+    private var settingsSubscription: AnyCancellable?
     private var currentItemID: Int64?
     /// Item whose completion should arm the keyboard's consume-once insert
     /// (only for dictations started from the keyboard handoff).
@@ -53,6 +55,10 @@ final class AppModel: ObservableObject {
         }
         settings = SettingsStore(defaults: AppGroup.defaults)
         setupWarning = warning
+        // Views observe this model, not the settings store — republish its
+        // changes or pickers/steppers in Settings never visually update.
+        settingsSubscription = settings.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
 
         queue = UploadQueue(
             store: store,

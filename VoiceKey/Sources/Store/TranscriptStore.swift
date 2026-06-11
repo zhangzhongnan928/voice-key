@@ -25,7 +25,11 @@ final class TranscriptStore {
         dbQueue = try DatabaseQueue(path: path)
         // WAL so a second process (the iOS keyboard extension) can read
         // while the app writes. Harmless for the single-process macOS app.
-        try dbQueue.write { db in
+        // Must run outside a transaction: SQLite refuses to switch journal
+        // modes mid-transaction, and `write` wraps its block in one — which
+        // made every fresh-database launch fail (existing databases were
+        // already WAL, so the pragma was a no-op and the bug stayed hidden).
+        try dbQueue.writeWithoutTransaction { db in
             _ = try String.fetchOne(db, sql: "PRAGMA journal_mode = WAL")
         }
         try migrate()

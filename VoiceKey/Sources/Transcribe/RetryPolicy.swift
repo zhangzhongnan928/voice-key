@@ -12,6 +12,24 @@ enum RetryPolicy {
         guard retryCount >= 0, retryCount < maxRetries else { return nil }
         return delays[min(retryCount, delays.count - 1)]
     }
+
+    /// CR-4: Retry-After is either delta-seconds or an HTTP-date.
+    static func parseRetryAfter(_ value: String?, now: Date = Date()) -> TimeInterval? {
+        guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty else {
+            return nil
+        }
+        if let seconds = TimeInterval(value) {
+            return max(0, seconds)
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        if let date = formatter.date(from: value) {
+            return max(0, date.timeIntervalSince(now))
+        }
+        return nil
+    }
 }
 
 /// Injectable clock so retry timing is unit-testable without real sleeps.

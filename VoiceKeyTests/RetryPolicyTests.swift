@@ -47,12 +47,12 @@ final class RetryPolicyTests: XCTestCase {
     }
 
     func testRetryAfterParsing() {
-        XCTAssertEqual(TranscriberClient.parseRetryAfter("7"), 7)
-        XCTAssertEqual(TranscriberClient.parseRetryAfter(" 30 "), 30)
-        XCTAssertEqual(TranscriberClient.parseRetryAfter("-5"), 0, "negative clamps to zero")
-        XCTAssertNil(TranscriberClient.parseRetryAfter(nil))
-        XCTAssertNil(TranscriberClient.parseRetryAfter(""))
-        XCTAssertNil(TranscriberClient.parseRetryAfter("soon"))
+        XCTAssertEqual(RetryPolicy.parseRetryAfter("7"), 7)
+        XCTAssertEqual(RetryPolicy.parseRetryAfter(" 30 "), 30)
+        XCTAssertEqual(RetryPolicy.parseRetryAfter("-5"), 0, "negative clamps to zero")
+        XCTAssertNil(RetryPolicy.parseRetryAfter(nil))
+        XCTAssertNil(RetryPolicy.parseRetryAfter(""))
+        XCTAssertNil(RetryPolicy.parseRetryAfter("soon"))
 
         let now = Date(timeIntervalSince1970: 1_750_000_000)
         let formatter = DateFormatter()
@@ -60,7 +60,7 @@ final class RetryPolicyTests: XCTestCase {
         formatter.timeZone = TimeZone(identifier: "GMT")
         formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
         let httpDate = formatter.string(from: now.addingTimeInterval(42))
-        let parsed = TranscriberClient.parseRetryAfter(httpDate, now: now)
+        let parsed = RetryPolicy.parseRetryAfter(httpDate, now: now)
         XCTAssertEqual(parsed ?? -1, 42, accuracy: 1.0)
     }
 }

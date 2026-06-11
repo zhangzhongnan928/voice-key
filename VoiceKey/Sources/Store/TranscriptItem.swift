@@ -47,6 +47,10 @@ struct TranscriptItem: Codable, Identifiable, Equatable, FetchableRecord, Mutabl
     var appBundleId: String?
     var costUsd: Double?
     var error: String?
+    /// CR-2: frontmost app's localized name and the moment recording stopped,
+    /// captured at stop time for the focus guard.
+    var appName: String?
+    var stoppedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -59,6 +63,8 @@ struct TranscriptItem: Codable, Identifiable, Equatable, FetchableRecord, Mutabl
         case appBundleId = "app_bundle_id"
         case costUsd = "cost_usd"
         case error
+        case appName = "app_name"
+        case stoppedAt = "stopped_at"
     }
 
     mutating func didInsert(_ inserted: InsertionSuccess) {

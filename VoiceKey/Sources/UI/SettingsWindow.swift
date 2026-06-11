@@ -79,11 +79,8 @@ struct SettingsView: View {
     private var dictationTab: some View {
         Form {
             KeyboardShortcuts.Recorder("Hotkey:", name: .record)
-
-            Picker("Hotkey mode:", selection: binding(\.hotkeyMode)) {
-                Text("Toggle (press to start/stop)").tag(HotkeyMode.toggle)
-                Text("Push-to-talk (hold)").tag(HotkeyMode.pushToTalk)
-            }
+            // CR-8: push-to-talk is deferred until toggle mode is stable in
+            // daily use; the mode setting is hidden (toggle only).
 
             Picker("Model:", selection: binding(\.model)) {
                 ForEach(TranscriptionModel.allCases) { model in
@@ -134,10 +131,19 @@ struct SettingsView: View {
                 Text("Paste (clipboard + ⌘V)").tag(InsertionStrategy.paste)
                 Text("Type (for apps that block paste)").tag(InsertionStrategy.type)
             }
+            Toggle("Restore previous clipboard after paste", isOn: binding(\.restoreClipboard))
             Stepper(value: binding(\.clipboardRestoreDelayMs), in: 0...5000, step: 100) {
                 Text("Clipboard restore delay: \(settings.clipboardRestoreDelayMs) ms")
             }
-            Text("In password fields the transcript goes to the clipboard only.")
+            Text("If you copy something during the delay, your copy wins — no restore.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle("Only insert while the same app is focused (focus guard)", isOn: binding(\.focusGuardEnabled))
+            Stepper(value: binding(\.focusGuardWindowSeconds), in: 10...600, step: 10) {
+                Text("Focus guard window: \(Int(settings.focusGuardWindowSeconds)) s")
+            }
+            Text("If focus moved to another app, the transcript is copied to the clipboard instead of pasted. In password fields it always goes to the clipboard only.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -164,6 +170,10 @@ struct SettingsView: View {
             )
             Text(String(format: "This month so far: $%.2f",
                         settings.costTotal(forMonth: AppController.monthKey(for: Date()))))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            // CR-6
+            Text("This device only (estimate). Authoritative usage: OpenAI dashboard.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

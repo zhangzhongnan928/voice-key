@@ -3,21 +3,42 @@ import Foundation
 enum TranscriberError: Error, Equatable, LocalizedError {
     case noAPIKey
     case fileTooLarge(bytes: Int)
-    case http(status: Int, body: String)
+    case http(status: Int, body: String, retryAfter: TimeInterval?)
     case network(String)
     case timeout
     case malformedResponse(String)
 
-    /// Whether the upload queue should retry automatically.
+    /// CR-4 retry taxonomy. Retryable: URL errors (offline, timeout),
+    /// HTTP 408, 429, 5xx. Everything else (400/401/403/413/422, parse
+    /// errors, oversize) fails immediately.
     var isRetryable: Bool {
         switch self {
-        case .http(let status, _):
-            return status == 429 || (500...599).contains(status)
+        case .http(let status, _, _):
+            return status == 408 || status == 429 || (500...599).contains(status)
         case .network, .timeout:
             return true
         case .noAPIKey, .fileTooLarge, .malformedResponse:
             return false
         }
+    }
+
+    /// CR-4: 401/403 (and a missing key) should tell the owner to check the
+    /// API key in Settings.
+    var needsKeyCheck: Bool {
+        switch self {
+        case .noAPIKey:
+            return true
+        case .http(let status, _, _):
+            return status == 401 || status == 403
+        default:
+            return false
+        }
+    }
+
+    /// Server-requested minimum wait (Retry-After on 429), if any.
+    var retryAfterSeconds: TimeInterval? {
+        if case .http(_, _, let retryAfter) = self { return retryAfter }
+        return nil
     }
 
     var errorDescription: String? {
@@ -26,12 +47,12 @@ enum TranscriberError: Error, Equatable, LocalizedError {
             return "No API key configured. Add it in Settings."
         case .fileTooLarge(let bytes):
             return "Encoded audio is \(bytes / 1_048_576) MB, over the 24 MB upload limit."
-        case .http(let status, let body):
+        case .http(let status, let body, _):
             return "API error HTTP \(status): \(String(body.prefix(200)))"
         case .network(let detail):
             return "Network error: \(detail)"
         case .timeout:
-            return "Request timed out after 60 s."
+            return "Request timed out."
         case .malformedResponse(let body):
             return "Unexpected API response: \(String(body.prefix(200)))"
         }
@@ -47,7 +68,10 @@ final class TranscriberClient {
     private let session: URLSession
 
     init(configuration: URLSessionConfiguration = .ephemeral) {
-        configuration.timeoutIntervalForRequest = 60
+        // CR-5: 30 s inactivity timeout, 10 min total — a 15-minute
+        // recording's upload must not die on a fixed short total timeout.
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 600
         session = URLSession(configuration: configuration)
     }
 
@@ -68,7 +92,6 @@ final class TranscriberClient {
         let boundary = "voicekey-\(UUID().uuidString)"
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 60
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = try Self.multipartBody(
@@ -88,10 +111,15 @@ final class TranscriberClient {
             throw TranscriberError.network(error.localizedDescription)
         }
 
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let httpResponse = response as? HTTPURLResponse
+        let status = httpResponse?.statusCode ?? 0
         let bodyText = String(data: data, encoding: .utf8) ?? ""
         guard (200..<300).contains(status) else {
-            throw TranscriberError.http(status: status, body: bodyText)
+            throw TranscriberError.http(
+                status: status,
+                body: bodyText,
+                retryAfter: Self.parseRetryAfter(httpResponse?.value(forHTTPHeaderField: "Retry-After"))
+            )
         }
         guard
             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -100,6 +128,24 @@ final class TranscriberClient {
             throw TranscriberError.malformedResponse(bodyText)
         }
         return text
+    }
+
+    /// Retry-After is either delta-seconds or an HTTP-date.
+    static func parseRetryAfter(_ value: String?, now: Date = Date()) -> TimeInterval? {
+        guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty else {
+            return nil
+        }
+        if let seconds = TimeInterval(value) {
+            return max(0, seconds)
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "GMT")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        if let date = formatter.date(from: value) {
+            return max(0, date.timeIntervalSince(now))
+        }
+        return nil
     }
 
     /// Cheap key validation for the Settings "Test" button: lists models.
@@ -116,7 +162,7 @@ final class TranscriberClient {
         }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
-            throw TranscriberError.http(status: status, body: String(data: data, encoding: .utf8) ?? "")
+            throw TranscriberError.http(status: status, body: String(data: data, encoding: .utf8) ?? "", retryAfter: nil)
         }
     }
 

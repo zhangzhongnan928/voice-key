@@ -71,6 +71,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             keyEquivalent: ""
         )
         cost.isEnabled = false
+        // CR-6
+        cost.toolTip = "This device only (estimate). Authoritative usage: OpenAI dashboard."
         menu.addItem(cost)
 
         menu.addItem(.separator())

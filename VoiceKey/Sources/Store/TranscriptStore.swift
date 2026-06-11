@@ -50,6 +50,13 @@ final class TranscriptStore {
             try db.create(index: "idx_items_state", on: "items", columns: ["state"])
             try db.create(index: "idx_items_created_at", on: "items", columns: ["created_at"])
         }
+        migrator.registerMigration("v2") { db in
+            // CR-2 focus guard: app identity and timestamp at recording stop.
+            try db.alter(table: "items") { t in
+                t.add(column: "app_name", .text)
+                t.add(column: "stopped_at", .datetime)
+            }
+        }
         try migrator.migrate(dbQueue)
     }
 
@@ -66,7 +73,9 @@ final class TranscriptStore {
             audioPath: audioPath,
             appBundleId: appBundleId,
             costUsd: nil,
-            error: nil
+            error: nil,
+            appName: nil,
+            stoppedAt: nil
         )
         try dbQueue.write { db in
             try item.insert(db)
@@ -125,12 +134,18 @@ final class TranscriptStore {
         try dbQueue.read { db in try TranscriptItem.fetchOne(db, key: id) }
     }
 
+    static func defaultFileNonEmpty(_ path: String) -> Bool {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return ((attributes?[.size] as? Int) ?? 0) > 0
+    }
+
     /// Crash recovery: on launch, every non-terminal row is brought back to a
     /// resumable state.
     /// - `uploading` -> `queued` (the upload was cut off; retry it)
-    /// - `recording` -> `queued` if its audio file exists on disk (partial
-    ///   audio is still worth transcribing), otherwise `failed`.
-    func recoverOnLaunch(fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) throws {
+    /// - `recording` -> `queued` if its CAF capture file is non-empty
+    ///   (CR-1: partial audio is still worth transcribing), otherwise
+    ///   `failed`. Transcoding to the upload artifact happens in the queue.
+    func recoverOnLaunch(fileNonEmpty: (String) -> Bool = TranscriptStore.defaultFileNonEmpty) throws {
         let nonTerminal = try dbQueue.read { db in
             try TranscriptItem
                 .filter([ItemState.recording.rawValue, ItemState.uploading.rawValue].contains(Column("state")))
@@ -143,7 +158,7 @@ final class TranscriptStore {
                 try transition(id: id, to: .queued)
                 Log.store.info("recovery: item \(id) uploading -> queued")
             case .recording:
-                if let path = item.audioPath, fileExists(path) {
+                if let path = item.audioPath, fileNonEmpty(path) {
                     try transition(id: id, to: .queued) { $0.error = nil }
                     Log.store.info("recovery: item \(id) recording -> queued (partial audio kept)")
                 } else {

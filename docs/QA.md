@@ -20,7 +20,7 @@ client; everything below needs a human, a microphone, and real apps.
 - [ ] Option+Space again stops; transcript appears in the focused field.
 - [ ] Esc during recording cancels: no transcript, no history row, audio file
       removed.
-- [ ] Push-to-talk mode: hold hotkey records, release stops.
+- [ ] (Push-to-talk is deferred per CR-8 — verify the mode setting is hidden.)
 - [ ] Start sound and stop sound play (Settings > Sounds on); disable and
       verify silence.
 - [ ] Mixed Chinese/English sentence transcribes correctly with language blank
@@ -38,8 +38,16 @@ With strategy **Paste**:
 - [ ] Cursor editor: inserted.
 - [ ] Clipboard contents from before dictation are restored ~0.5 s after
       insertion.
+- [ ] **Clipboard safety (CR-3)**: trigger insert, immediately copy something
+      else during the restore delay — your new copy survives, no overwrite.
 - [ ] Safari password field: NOT typed/pasted; notification says transcript is
       in the clipboard; clipboard contains the transcript.
+- [ ] **Focus safety (CR-2)**: start dictation in TextEdit, switch to Safari
+      before completion — transcript is copied, NOT pasted into Safari;
+      notification names both apps ("Focus changed from TextEdit to Safari").
+- [ ] Focus guard window: with the window set to e.g. 30 s, stay in the same
+      app but let the transcript arrive later than 30 s (airplane mode trick)
+      — clipboard only, no paste.
 
 With strategy **Type**:
 
@@ -49,24 +57,40 @@ With strategy **Type**:
 
 - [ ] **Kill -9 mid-upload**: start a long dictation, stop it, immediately
       `kill -9` the VoiceKey process (Activity Monitor), relaunch. The item
-      resumes and completes; transcript visible in History.
-- [ ] **Kill -9 mid-recording**: kill while recording, relaunch. Partial audio
-      is queued and transcribed (item shows partial text, not lost).
+      resumes and completes (or fails cleanly with an error in History).
+- [ ] **Kill -9 mid-recording (CR-1)**: kill while recording, relaunch. The
+      partial CAF capture appears in the queue, is transcoded, and
+      transcribes (item shows partial text — never lost).
 - [ ] **Airplane mode**: disable Wi-Fi, record. Item sits in queued state,
       icon shows uploading/error-free wait. Re-enable Wi-Fi: completes without
       any user action.
-- [ ] Wrong API key: item fails after retries with a clear error in History;
-      Retry works after fixing the key.
-- [ ] Failed item keeps its audio file even with "keep audio" off.
+- [ ] **Bad API key (CR-4)**: wrong key → exactly one request (no retry
+      loop), item failed with the error stored, notification says
+      "Check API key in Settings." Retry works after fixing the key.
+- [ ] **Rate limit (CR-4)**: mocked/unit-tested — 429 with `Retry-After: 7`
+      waits about 7 s before the next attempt (covered by
+      `UploadQueueRetryTests`).
+- [ ] Failed item keeps both its CAF capture and upload artifact even with
+      "keep audio" off; done items delete both (unless keep-audio is on).
 
 ## Limits
 
 - [ ] Recording past 14:00 shows the warning notification.
 - [ ] Recording hits 15:00: auto-stops and transcribes what was captured.
-- [ ] Recording > 2 min uploads as m4a (check log category `net`), and
-      transcript is still correct.
+- [ ] Recording > 2 min uploads as m4a, ≤ 2 min as wav (check log category
+      `net`), and transcript is still correct.
+- [ ] 15-minute recording encodes to ≤ 24 MB and uploads, or fails with a
+      clear "over the 24 MB upload limit" error — no silent loss.
 - [ ] Mid-recording, unplug/disconnect the input device (e.g. take out
       AirPods): recording stops gracefully and what was captured is queued.
+- [ ] Disk full (or simulate by revoking write access to the audio folder):
+      recording fails with a notification, app does not crash.
+- [ ] **Mic permission denied**: revoke Microphone in System Settings,
+      attempt to record — clear prompt/notification directing to
+      System Settings > Privacy & Security > Microphone; no crash.
+- [ ] **Accessibility denied**: revoke Accessibility — recording and
+      transcription still work; insertion falls back to clipboard +
+      notification naming the missing permission.
 
 ## History
 
@@ -86,6 +110,8 @@ With strategy **Type**:
 - [ ] Edit a model rate in Settings; next dictation uses the new rate.
 - [ ] Set the monthly threshold just below the current total + next item:
       crossing it fires exactly one notification (not repeated).
+- [ ] CR-6 label present in Settings > Cost and as menu tooltip:
+      "This device only (estimate). Authoritative usage: OpenAI dashboard."
 
 ## Misc
 

@@ -2,8 +2,13 @@ import AVFoundation
 import Foundation
 
 /// Captures microphone audio with an AVAudioEngine tap and writes 16 kHz mono
-/// 16-bit WAV to disk *incrementally* — never buffered only in memory, so a
+/// 16-bit PCM to disk *incrementally* — never buffered only in memory, so a
 /// crash mid-recording loses at most the last buffer (~0.25 s).
+///
+/// CR-1: the capture container is CAF (pass a `.caf` URL). CAF tolerates
+/// truncation, unlike WAV whose header finalizes on close — so a kill -9
+/// mid-recording leaves a readable file. The upload artifact (wav/m4a) is
+/// produced afterwards by AudioTranscoder.
 final class Recorder {
     enum RecorderError: Error, LocalizedError {
         case noInputDevice

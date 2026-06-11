@@ -12,7 +12,7 @@ final class CrashRecoveryTests: XCTestCase {
         try store.transition(id: id, to: .uploading)
 
         // "Relaunch": the upload was cut off by kill -9.
-        try store.recoverOnLaunch(fileExists: { _ in true })
+        try store.recoverOnLaunch(fileNonEmpty: { _ in true })
 
         XCTAssertEqual(try store.item(id: id)?.state, .queued, "interrupted upload must be retried")
     }
@@ -23,7 +23,7 @@ final class CrashRecoveryTests: XCTestCase {
         let id = try XCTUnwrap(item.id)
 
         // App died mid-recording; the WAV written so far is on disk.
-        try store.recoverOnLaunch(fileExists: { path in path == "/tmp/partial.wav" })
+        try store.recoverOnLaunch(fileNonEmpty: { path in path == "/tmp/partial.wav" })
 
         XCTAssertEqual(try store.item(id: id)?.state, .queued, "partial audio is still transcribed — never lose audio")
     }
@@ -33,7 +33,7 @@ final class CrashRecoveryTests: XCTestCase {
         let item = try store.createRecording(audioPath: "/tmp/ghost.wav", appBundleId: nil)
         let id = try XCTUnwrap(item.id)
 
-        try store.recoverOnLaunch(fileExists: { _ in false })
+        try store.recoverOnLaunch(fileNonEmpty: { _ in false })
 
         let recovered = try XCTUnwrap(try store.item(id: id))
         XCTAssertEqual(recovered.state, .failed)
@@ -52,7 +52,7 @@ final class CrashRecoveryTests: XCTestCase {
         let failedID = try XCTUnwrap(failedItem.id)
         try store.transition(id: failedID, to: .failed) { $0.error = "x" }
 
-        try store.recoverOnLaunch(fileExists: { _ in true })
+        try store.recoverOnLaunch(fileNonEmpty: { _ in true })
 
         XCTAssertEqual(try store.item(id: doneID)?.state, .done)
         XCTAssertEqual(try store.item(id: doneID)?.text, "hello")

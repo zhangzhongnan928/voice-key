@@ -45,6 +45,9 @@ final class SettingsStore: ObservableObject {
         static let keepAudio = "keepAudio"
         static let insertionStrategy = "insertionStrategy"
         static let clipboardRestoreDelayMs = "clipboardRestoreDelayMs"
+        static let restoreClipboard = "restoreClipboard"
+        static let focusGuardEnabled = "focusGuardEnabled"
+        static let focusGuardWindowSeconds = "focusGuardWindowSeconds"
         static let soundsEnabled = "soundsEnabled"
         static let warnAtSeconds = "warnAtSeconds"
         static let maxRecordingSeconds = "maxRecordingSeconds"
@@ -106,6 +109,24 @@ final class SettingsStore: ObservableObject {
     var clipboardRestoreDelayMs: Int {
         get { defaults.object(forKey: Keys.clipboardRestoreDelayMs) as? Int ?? 500 }
         set { set(max(0, newValue), for: Keys.clipboardRestoreDelayMs) }
+    }
+
+    /// CR-3: restore the previous clipboard after paste (guarded by
+    /// changeCount so a user copy in between is never overwritten).
+    var restoreClipboard: Bool {
+        get { defaults.object(forKey: Keys.restoreClipboard) as? Bool ?? true }
+        set { set(newValue, for: Keys.restoreClipboard) }
+    }
+
+    /// CR-2: only auto-insert while focus is unchanged and recent.
+    var focusGuardEnabled: Bool {
+        get { defaults.object(forKey: Keys.focusGuardEnabled) as? Bool ?? true }
+        set { set(newValue, for: Keys.focusGuardEnabled) }
+    }
+
+    var focusGuardWindowSeconds: Double {
+        get { defaults.object(forKey: Keys.focusGuardWindowSeconds) as? Double ?? FocusGuard.defaultWindowSeconds }
+        set { set(max(0, newValue), for: Keys.focusGuardWindowSeconds) }
     }
 
     var soundsEnabled: Bool {

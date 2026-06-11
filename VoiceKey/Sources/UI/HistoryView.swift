@@ -32,6 +32,7 @@ final class HistoryViewModel: ObservableObject {
     }
 
     func appName(for item: TranscriptItem) -> String {
+        if let name = item.appName, !name.isEmpty { return name }
         guard let bundleId = item.appBundleId else { return "—" }
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
             return bundleId

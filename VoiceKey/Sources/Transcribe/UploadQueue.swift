@@ -18,7 +18,9 @@ final class UploadQueue {
         /// Transcription succeeded; the item is still in `uploading` state —
         /// the handler owns the `done` transition (text, cost, insertion).
         case transcribed(item: TranscriptItem, text: String)
-        case failedPermanently(TranscriptItem)
+        /// CR-4: `needsKeyCheck` is true for 401/403/missing key so the UI
+        /// can tell the owner to check the API key in Settings.
+        case failedPermanently(TranscriptItem, needsKeyCheck: Bool)
         case idle
     }
 
@@ -86,7 +88,7 @@ final class UploadQueue {
 
     private func process(item: TranscriptItem, id: Int64) async {
         guard let apiKey = apiKeyProvider(), !apiKey.isEmpty else {
-            fail(id: id, message: TranscriberError.noAPIKey.localizedDescription)
+            fail(id: id, message: TranscriberError.noAPIKey.localizedDescription, needsKeyCheck: true)
             return
         }
         guard let audioURL = item.audioURL, FileManager.default.fileExists(atPath: audioURL.path) else {
@@ -119,18 +121,16 @@ final class UploadQueue {
         }
     }
 
-    /// Transcodes recordings over 2 minutes to m4a off the main thread before
-    /// upload (F2/F3); the 24 MB cap is enforced by the client.
+    /// CR-1: the CAF capture is never uploaded — produce the wav/m4a upload
+    /// artifact off the main thread. The 24 MB cap is enforced by the client.
     private func prepareUpload(item: TranscriptItem, audioURL: URL) async throws -> URL {
-        guard item.durationS > AudioTranscoder.transcodeThresholdSeconds,
-              audioURL.pathExtension == "wav" else { return audioURL }
-        let m4aURL = audioURL.deletingPathExtension().appendingPathExtension("m4a")
-        if !FileManager.default.fileExists(atPath: m4aURL.path) {
-            try await Task.detached(priority: .utility) {
-                try AudioTranscoder.transcodeToM4A(input: audioURL, output: m4aURL)
-            }.value
+        guard audioURL.pathExtension == "caf" else {
+            return audioURL   // legacy pre-CR-1 items uploaded directly
         }
-        return m4aURL
+        let duration = item.durationS
+        return try await Task.detached(priority: .utility) {
+            try AudioTranscoder.makeUploadArtifact(captureURL: audioURL, durationS: duration)
+        }.value
     }
 
     private func handleFailure(id: Int64, item: TranscriptItem, error: Error) async {
@@ -138,10 +138,12 @@ final class UploadQueue {
         let retryable = transcriberError?.isRetryable ?? true
         let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
 
-        guard retryable, let delay = RetryPolicy.delay(afterFailures: item.retryCount) else {
-            fail(id: id, message: message)
+        guard retryable, let backoff = RetryPolicy.delay(afterFailures: item.retryCount) else {
+            fail(id: id, message: message, needsKeyCheck: transcriberError?.needsKeyCheck ?? false)
             return
         }
+        // CR-4: on 429, honor Retry-After when present.
+        let delay = max(backoff, transcriberError?.retryAfterSeconds ?? 0)
 
         do {
             try store.transition(id: id, to: .queued) {
@@ -158,11 +160,11 @@ final class UploadQueue {
 
     /// Terminal failure. Audio is kept regardless of the keep-audio setting
     /// so a manual retry from History is always possible.
-    private func fail(id: Int64, message: String) {
+    private func fail(id: Int64, message: String, needsKeyCheck: Bool = false) {
         let failedItem = try? store.transition(id: id, to: .failed) { $0.error = message }
         Log.net.error("item \(id) failed permanently: \(message, privacy: .public)")
         if let failedItem {
-            onEvent?(.failedPermanently(failedItem))
+            onEvent?(.failedPermanently(failedItem, needsKeyCheck: needsKeyCheck))
         }
     }
 }

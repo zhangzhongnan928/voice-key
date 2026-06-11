@@ -10,21 +10,27 @@ succeeds — offline, crashes, and `kill -9` included.
 
 ## Features
 
-- Global hotkey (default **Option+Space**), toggle or push-to-talk mode,
-  **Esc** cancels. Configurable in Settings.
+- Global hotkey (default **Option+Space**), toggle mode (push-to-talk is
+  deferred until toggle is stable in daily use), **Esc** cancels.
 - Floating HUD with level meter, elapsed time, and cancel hint.
+- Crash-safe capture: audio is written incrementally to a truncation-tolerant
+  CAF file; even a kill -9 mid-recording leaves transcribable audio.
 - OpenAI transcription (`gpt-4o-mini-transcribe` default, `gpt-4o-transcribe`,
   `whisper-1`), automatic language detection (handles mixed Chinese/English),
   custom-vocabulary prompt.
-- Insertion: clipboard + synthetic ⌘V with clipboard restore (default), or
-  typing simulation for paste-blocking apps. Password fields are detected and
-  fall back to clipboard + notification.
-- Durable queue: offline pause/resume, 2/4/8/16/30 s retry backoff (max 5),
-  crash recovery on launch, manual retry from History.
+- Insertion: clipboard + synthetic ⌘V (default), or typing simulation for
+  paste-blocking apps. A focus guard skips pasting if you switched apps (or
+  more than 120 s passed) — the transcript is copied instead. The previous
+  clipboard is restored only if you didn't copy anything in between. Password
+  fields always fall back to clipboard + notification.
+- Durable queue: offline pause/resume, 2/4/8/16/30 s retry backoff (max 5,
+  429 honors Retry-After), crash recovery on launch, manual retry from
+  History. 401/403 fail immediately with a "check API key" notification.
 - History popover with search and per-row copy / insert / retry / delete.
-- Cost meter with user-editable per-model rates and a monthly alert.
+- Cost meter with user-editable per-model rates and a monthly alert —
+  this device only (estimate); authoritative usage: OpenAI dashboard.
 - Limits: warn at 14:00, auto-stop at 15:00 (configurable); recordings over
-  2 min upload as ~32 kbps m4a; 24 MB upload cap.
+  2 min upload as ~32 kbps m4a, shorter ones as WAV; 24 MB upload cap.
 
 ## Building
 
@@ -69,18 +75,19 @@ Application**, notarizes via `notarytool`, staples the ticket, and produces
 4. **Notifications** — allow, so you see failures, password-field fallbacks,
    and the cost alert.
 5. Open **Settings…** from the menu bar icon and paste the OpenAI API key
-   (one shared project key; set a hard monthly budget cap on the project in
-   the OpenAI dashboard as the backstop). The key is stored only in the macOS
-   Keychain — never in files, UserDefaults, logs, or git. Click **Test** to
-   verify.
+   (one shared project key). Set an OpenAI project monthly budget as the
+   primary backstop. Enforcement may lag, so the in-app cost meter is
+   advisory only. The key is stored only in the macOS Keychain — never in
+   files, UserDefaults, logs, or git. Click **Test** to verify.
 
 ## Usage
 
-Press **Option+Space**, speak, press it again (or release, in push-to-talk
-mode). The transcript is inserted where your cursor is. **Esc** while
-recording cancels. The menu bar icon shows idle / recording / uploading /
-error; the menu has the last transcript (click to copy), this month's cost,
-History, and Settings.
+Press **Option+Space**, speak, press it again to stop. The transcript is
+inserted where your cursor is — provided you are still in the same app you
+dictated into (focus guard); otherwise it is copied to the clipboard with a
+notification. **Esc** while recording cancels. The menu bar icon shows
+idle / recording / uploading / error; the menu has the last transcript
+(click to copy), this month's cost, History, and Settings.
 
 If you dictate into a password field, VoiceKey refuses to type there and puts
 the text in the clipboard instead (you'll get a notification).
@@ -101,23 +108,30 @@ swift run voicekey-cli --selftest # same, exits 0 on success
 
 ## Privacy
 
-Audio sent to the OpenAI API is subject to OpenAI's retention policy
-(typically up to 30 days for abuse monitoring; API data is not used for
-training). For stricter privacy a local model backend (whisper.cpp / MLX) is
-the v2 path. Locally, transcript text is never logged at info level, and
-history can be disabled entirely (history size 0).
+VoiceKey sends audio to OpenAI's /v1/audio/transcriptions endpoint. Per
+OpenAI's current API data-controls documentation, API data is not used for
+training by default, and the transcription endpoint is currently listed with
+no abuse-monitoring retention and no application-state retention. Policies
+can change; check OpenAI's current data-controls page before dictating
+sensitive material. Do not dictate third-party confidential, medical, legal,
+or regulated information unless you are comfortable sending it to the
+configured API provider.
+
+Locally, transcript text is never logged at info level, and history can be
+disabled entirely (history size 0). For stricter privacy a local model
+backend (whisper.cpp / MLX) is the v2 path.
 
 ## Architecture
 
 | Module | Responsibility |
 | --- | --- |
 | `HotkeyManager` | global shortcut, toggle/push-to-talk, Esc cancel |
-| `Recorder` | AVAudioEngine tap → incremental 16 kHz mono WAV on disk |
-| `AudioTranscoder` | >2 min WAV → ~32 kbps m4a before upload |
+| `Recorder` | AVAudioEngine tap → incremental 16 kHz mono CAF on disk (truncation-tolerant) |
+| `AudioTranscoder` | CAF → WAV (≤2 min) or ~32 kbps m4a (>2 min) upload artifact |
 | `TranscriptStore` | GRDB SQLite; state machine `recording → queued → uploading → done/failed`; launch recovery |
-| `UploadQueue` | drains queue, NWPathMonitor offline pause, retry backoff |
-| `TranscriberClient` | OpenAI multipart client, 60 s timeout, error classification |
-| `Inserter` | paste / type strategies, secure-input fallback, clipboard guarantee |
+| `UploadQueue` | drains queue, NWPathMonitor offline pause, retry backoff, Retry-After |
+| `TranscriberClient` | OpenAI multipart client (30 s request / 600 s resource timeout), error taxonomy |
+| `FocusGuard` / `Inserter` | focus + clipboard guards, paste / type strategies, secure-input fallback, clipboard guarantee |
 | `CostMeter` | `ceil(seconds)/60 × rate`; monthly totals + alert |
 | `SettingsStore` / `KeychainStore` | preferences (UserDefaults) / API key (Keychain) |
 | `UI` | status item, recording HUD, history popover, settings window |

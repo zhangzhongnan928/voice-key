@@ -34,7 +34,12 @@ final class Inserter {
     /// Injectable accessibility check.
     var accessibilityTrusted: () -> Bool = { AXIsProcessTrusted() }
 
-    func insert(_ text: String, strategy: InsertionStrategy, clipboardRestoreDelayMs: Int) -> InsertionOutcome {
+    func insert(
+        _ text: String,
+        strategy: InsertionStrategy,
+        restoreClipboard: Bool = true,
+        clipboardRestoreDelayMs: Int
+    ) -> InsertionOutcome {
         if secureInputDetector() {
             setClipboard(text)
             Log.insert.info("secure input active; transcript left in clipboard")
@@ -48,7 +53,7 @@ final class Inserter {
 
         switch InsertionPlanner.method(strategy: strategy, secureInputEnabled: false) {
         case .paste:
-            return pasteInsert(text, restoreDelayMs: clipboardRestoreDelayMs)
+            return pasteInsert(text, restoreClipboard: restoreClipboard, restoreDelayMs: clipboardRestoreDelayMs)
         case .type:
             return typeInsert(text)
         case .clipboardOnly:
@@ -59,11 +64,14 @@ final class Inserter {
 
     // MARK: Strategy A: clipboard + synthetic Cmd+V
 
-    private func pasteInsert(_ text: String, restoreDelayMs: Int) -> InsertionOutcome {
+    private func pasteInsert(_ text: String, restoreClipboard: Bool, restoreDelayMs: Int) -> InsertionOutcome {
         let pasteboard = NSPasteboard.general
         let savedString = pasteboard.string(forType: .string)
 
         setClipboard(text)
+        // CR-3: remember the pasteboard generation of OUR write; restore only
+        // if it is still the latest write at restore time.
+        let changeCountAtWrite = pasteboard.changeCount
 
         guard postCmdV() else {
             // Leave the transcript in the clipboard (do not restore) so the
@@ -73,11 +81,19 @@ final class Inserter {
         }
 
         // Restore the previous clipboard after the target app has consumed
-        // the paste.
-        if let savedString {
+        // the paste — unless the user copied something newer in between.
+        if restoreClipboard, let savedString {
             DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(max(0, restoreDelayMs))) {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(savedString, forType: .string)
+                let pasteboard = NSPasteboard.general
+                guard ClipboardRestorePolicy.shouldRestore(
+                    changeCountAtWrite: changeCountAtWrite,
+                    currentChangeCount: pasteboard.changeCount
+                ) else {
+                    Log.insert.info("clipboard changed during restore delay; keeping the user's copy")
+                    return
+                }
+                pasteboard.clearContents()
+                pasteboard.setString(savedString, forType: .string)
             }
         }
         return .inserted(.paste)

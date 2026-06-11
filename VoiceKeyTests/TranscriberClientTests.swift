@@ -49,8 +49,20 @@ final class TranscriberClientTests: XCTestCase {
             _ = try await transcribe()
             XCTFail("expected error")
         } catch let error as TranscriberError {
-            XCTAssertEqual(error, .http(status: 429, body: #"{"error": {"message": "rate limited"}}"#))
+            XCTAssertEqual(error, .http(status: 429, body: #"{"error": {"message": "rate limited"}}"#, retryAfter: nil))
             XCTAssertTrue(error.isRetryable)
+        }
+    }
+
+    func test429CarriesRetryAfterHeader() async throws {
+        MockURLProtocol.responseHeaders = ["Retry-After": "7"]
+        defer { MockURLProtocol.responseHeaders = [:] }
+        MockURLProtocol.handler = { _ in (429, Data("{}".utf8)) }
+        do {
+            _ = try await transcribe()
+            XCTFail("expected error")
+        } catch let error as TranscriberError {
+            XCTAssertEqual(error.retryAfterSeconds, 7)
         }
     }
 

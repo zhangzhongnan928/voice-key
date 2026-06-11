@@ -135,8 +135,19 @@ final class AppController {
 
     func startRecording() {
         guard !recorder.isRecording else { return }
+        // CR-9: denied mic permission gets a clear pointer to System
+        // Settings instead of a silent failure.
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        if micStatus == .denied || micStatus == .restricted {
+            Notifier.shared.post(
+                title: "Microphone access denied",
+                body: "Enable VoiceKey in System Settings > Privacy & Security > Microphone, then try again."
+            )
+            return
+        }
         let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        let url = audioDirectory.appendingPathComponent("rec-\(UUID().uuidString).wav")
+        // CR-1: capture to CAF — truncation-tolerant if we crash mid-write.
+        let url = audioDirectory.appendingPathComponent("rec-\(UUID().uuidString).caf")
 
         do {
             // Row exists before capture starts: never lose audio.
@@ -183,8 +194,15 @@ final class AppController {
         currentItemID = nil
 
         let duration = hud.model.elapsed
+        // CR-2: capture the insertion target at STOP time for the focus guard.
+        let stopFront = NSWorkspace.shared.frontmostApplication
         do {
-            let item = try store.transition(id: id, to: .queued) { $0.durationS = duration }
+            let item = try store.transition(id: id, to: .queued) {
+                $0.durationS = duration
+                $0.appBundleId = stopFront?.bundleIdentifier
+                $0.appName = stopFront?.localizedName
+                $0.stoppedAt = Date()
+            }
             pendingInsertID = item.id
             statusItem.setIcon(.uploading)
             queue.kick()
@@ -227,12 +245,19 @@ final class AppController {
             if let id = item.id {
                 complete(id: id, item: item, text: text)
             }
-        case .failedPermanently(let item):
+        case .failedPermanently(let item, let needsKeyCheck):
             statusItem.setIcon(.error)
-            Notifier.shared.post(
-                title: "Transcription failed",
-                body: item.error ?? "Unknown error. Retry from History."
-            )
+            if needsKeyCheck {
+                Notifier.shared.post(
+                    title: "Check API key in Settings",
+                    body: item.error ?? "The API rejected the key."
+                )
+            } else {
+                Notifier.shared.post(
+                    title: "Transcription failed",
+                    body: item.error ?? "Unknown error. Retry from History."
+                )
+            }
         case .idle:
             if !recorder.isRecording {
                 statusItem.setIcon(.idle)
@@ -259,12 +284,14 @@ final class AppController {
             Log.store.error("complete transition failed: \(error.localizedDescription, privacy: .public)")
         }
 
-        // Audio of done items is deleted unless "keep audio" is on. Failed
-        // items always keep audio (manual retry needs it).
+        // CR-1: capture CAF and upload artifact are deleted only once the
+        // item is done (unless "keep audio" is on). Failed items keep both
+        // files (manual retry needs them).
         if !settings.keepAudio, let audioURL = item.audioURL {
-            try? FileManager.default.removeItem(at: audioURL)
-            let m4a = audioURL.deletingPathExtension().appendingPathExtension("m4a")
-            try? FileManager.default.removeItem(at: m4a)
+            let base = audioURL.deletingPathExtension()
+            for ext in ["caf", "wav", "m4a"] {
+                try? FileManager.default.removeItem(at: base.appendingPathExtension(ext))
+            }
             try? store.update(id: id) { $0.audioPath = nil }
         }
         try? store.pruneHistory(limit: max(settings.historyLimit, 1))
@@ -273,14 +300,41 @@ final class AppController {
 
         if pendingInsertID == id {
             pendingInsertID = nil
-            let outcome = inserter.insert(
-                text,
-                strategy: settings.insertionStrategy,
-                clipboardRestoreDelayMs: settings.clipboardRestoreDelayMs
+            insertGuarded(text: text, item: item)
+        }
+    }
+
+    /// CR-2: synthetic paste only if focus is still where dictation stopped
+    /// and the transcript arrived within the guard window; otherwise the
+    /// transcript goes to the clipboard with an explanatory notification.
+    private func insertGuarded(text: String, item: TranscriptItem) {
+        let current = NSWorkspace.shared.frontmostApplication
+        let allowed = FocusGuard.shouldAutoInsert(
+            enabled: settings.focusGuardEnabled,
+            storedBundleId: item.appBundleId,
+            currentBundleId: current?.bundleIdentifier,
+            stoppedAt: item.stoppedAt,
+            now: Date(),
+            windowSeconds: settings.focusGuardWindowSeconds
+        )
+        guard allowed else {
+            inserter.setClipboard(text)
+            let from = item.appName ?? "the original app"
+            let to = current?.localizedName ?? "another app"
+            Notifier.shared.post(
+                title: "Transcript copied",
+                body: "Transcript copied. Focus changed from \(from) to \(to)."
             )
-            if case .clipboardFallback(let reason) = outcome {
-                Notifier.shared.post(title: "Transcript in clipboard", body: reason)
-            }
+            return
+        }
+        let outcome = inserter.insert(
+            text,
+            strategy: settings.insertionStrategy,
+            restoreClipboard: settings.restoreClipboard,
+            clipboardRestoreDelayMs: settings.clipboardRestoreDelayMs
+        )
+        if case .clipboardFallback(let reason) = outcome {
+            Notifier.shared.post(title: "Transcript in clipboard", body: reason)
         }
     }
 
@@ -297,9 +351,11 @@ final class AppController {
 
     func reinsertItem(id: Int64) {
         guard let item = try? store.item(id: id), let text = item.text else { return }
+        // Manual re-insert is a deliberate user action: no focus guard.
         let outcome = inserter.insert(
             text,
             strategy: settings.insertionStrategy,
+            restoreClipboard: settings.restoreClipboard,
             clipboardRestoreDelayMs: settings.clipboardRestoreDelayMs
         )
         if case .clipboardFallback(let reason) = outcome {

@@ -31,6 +31,7 @@ final class AppModel: ObservableObject {
     private(set) var queue: UploadQueue!
 
     private var settingsSubscription: AnyCancellable?
+    private var interruptionObserver: NSObjectProtocol?
     private var currentItemID: Int64?
     /// Item whose completion should arm the keyboard's consume-once insert
     /// (only for dictations started from the keyboard handoff).
@@ -75,10 +76,30 @@ final class AppModel: ObservableObject {
         queue.onEvent = { [weak self] event in self?.handleQueueEvent(event) }
 
         wireRecorder()
+        wireInterruptions()
         try? store.recoverOnLaunch()
         queue.start()
         reloadHistory()
         DictationTrigger.shared.register(self)
+    }
+
+    /// Recording continues in the background (UIBackgroundModes: audio), so a
+    /// call or Siri can take the mic at any time. Finish-and-queue instead of
+    /// losing the take.
+    private func wireInterruptions() {
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { note in
+            guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
+            Task { @MainActor [weak self] in
+                guard let self, self.isRecording else { return }
+                self.stopRecording()
+                self.statusText = "Recording interrupted — transcribing what was captured."
+            }
+        }
     }
 
     // MARK: URL scheme (keyboard handoff)

@@ -52,7 +52,7 @@ targets:
       properties:
         CFBundleDisplayName: VoiceKey
         CFBundleShortVersionString: "1.0.0"
-        CFBundleVersion: "5"
+        CFBundleVersion: "6"
         UILaunchScreen: {}
         # Keep capturing when the user switches apps mid-dictation; recording
         # ends on interruption (call/Siri), auto-stop, or returning to tap stop.
@@ -102,7 +102,7 @@ targets:
       properties:
         CFBundleDisplayName: VoiceKey Board
         CFBundleShortVersionString: "1.0.0"
-        CFBundleVersion: "5"
+        CFBundleVersion: "6"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.keyboard-service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController

@@ -25,7 +25,9 @@ packages:
     from: 6.29.3
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
-    from: 2.2.0
+    # 2.1+ manifests require Swift tools 5.11 (Xcode 16); 2.0.1 is the last
+    # release resolvable by Xcode 15 / SwiftPM 5.10.
+    exactVersion: 2.0.1
 
 targets:
   VoiceKey:
@@ -67,6 +69,9 @@ targets:
       - VoiceKeyTests
     dependencies:
       - target: VoiceKey
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
 
 schemes:
   VoiceKey:

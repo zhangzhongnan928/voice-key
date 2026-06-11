@@ -57,8 +57,11 @@ targets:
         # Only exempt encryption (HTTPS) — pre-answers the TestFlight export
         # compliance question so uploads don't prompt per build.
         ITSAppUsesNonExemptEncryption: false
+        # All four orientations: required for iPad multitasking (ASC error
+        # 90474 rejects the upload otherwise; the target is universal).
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         NSMicrophoneUsageDescription: >-

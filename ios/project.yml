@@ -52,7 +52,7 @@ targets:
       properties:
         CFBundleDisplayName: VoiceKey
         CFBundleShortVersionString: "1.0.0"
-        CFBundleVersion: "3"
+        CFBundleVersion: "4"
         UILaunchScreen: {}
         # Only exempt encryption (HTTPS) — pre-answers the TestFlight export
         # compliance question so uploads don't prompt per build.
@@ -98,7 +98,7 @@ targets:
       properties:
         CFBundleDisplayName: VoiceKey Board
         CFBundleShortVersionString: "1.0.0"
-        CFBundleVersion: "3"
+        CFBundleVersion: "4"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.keyboard-service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController

@@ -78,6 +78,7 @@ final class AppModel: ObservableObject {
         try? store.recoverOnLaunch()
         queue.start()
         reloadHistory()
+        DictationTrigger.shared.register(self)
     }
 
     // MARK: URL scheme (keyboard handoff)
@@ -85,10 +86,16 @@ final class AppModel: ObservableObject {
     func handleURL(_ url: URL) {
         guard url.scheme == "voicekey" else { return }
         if url.host == "record" {
-            launchedFromKeyboard = true
-            showReturnBanner = false
-            startRecording()
+            startHandoffRecording()
         }
+    }
+
+    /// Start recording as a handoff (keyboard URL, Action Button intent):
+    /// the finished transcript arms the keyboard's consume-once insert.
+    func startHandoffRecording() {
+        launchedFromKeyboard = true
+        showReturnBanner = false
+        startRecording()
     }
 
     // MARK: Recording

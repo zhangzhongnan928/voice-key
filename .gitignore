@@ -7,6 +7,12 @@ dist/
 
 # XcodeGen output (regenerate with `xcodegen generate`)
 *.xcodeproj
+VoiceKey/Resources/Info.plist
+VoiceKey/Resources/VoiceKey.entitlements
+ios/App/Resources/Info.plist
+ios/App/Resources/VoiceKeyiOS.entitlements
+ios/Board/Resources/Info.plist
+ios/Board/Resources/VoiceKeyBoard.entitlements
 
 # Xcode user state
 xcuserdata/

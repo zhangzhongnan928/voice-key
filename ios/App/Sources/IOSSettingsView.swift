@@ -1,3 +1,4 @@
+import Security
 import SwiftUI
 
 /// Prompt 2 settings: API key, model, vocabulary prompt, history size.
@@ -18,12 +19,13 @@ struct IOSSettingsView: View {
                         .autocorrectionDisabled()
                     HStack {
                         Button("Save") {
-                            if model.keychain.setAPIKey(apiKeyDraft) {
+                            let status = model.keychain.setAPIKey(apiKeyDraft)
+                            if status == errSecSuccess {
                                 keyIsStored = true
                                 apiKeyDraft = ""
                                 testResult = "Key saved to Keychain."
                             } else {
-                                testResult = "Could not save to Keychain."
+                                testResult = "Could not save to Keychain (\(KeychainStore.describe(status)))"
                             }
                         }
                         .disabled(apiKeyDraft.trimmingCharacters(in: .whitespaces).isEmpty)

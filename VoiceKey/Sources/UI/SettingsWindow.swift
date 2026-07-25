@@ -1,5 +1,6 @@
 import AppKit
 import KeyboardShortcuts
+import Security
 import ServiceManagement
 import SwiftUI
 
@@ -32,12 +33,13 @@ struct SettingsView: View {
             SecureField(keyIsStored ? "•••••••• (stored in Keychain)" : "sk-...", text: $apiKeyDraft)
             HStack {
                 Button("Save Key") {
-                    if keychain.setAPIKey(apiKeyDraft) {
+                    let status = keychain.setAPIKey(apiKeyDraft)
+                    if status == errSecSuccess {
                         keyIsStored = true
                         apiKeyDraft = ""
                         testResult = "Key saved to Keychain."
                     } else {
-                        testResult = "Could not save to Keychain."
+                        testResult = "Could not save to Keychain (\(KeychainStore.describe(status)))"
                     }
                 }
                 .disabled(apiKeyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -60,8 +62,12 @@ struct SettingsView: View {
 
                 if keyIsStored {
                     Button("Remove", role: .destructive) {
-                        keychain.deleteAPIKey()
-                        keyIsStored = false
+                        let status = keychain.deleteAPIKey()
+                        if status == errSecSuccess {
+                            keyIsStored = false
+                        } else {
+                            testResult = "Could not remove key (\(KeychainStore.describe(status)))"
+                        }
                     }
                 }
             }

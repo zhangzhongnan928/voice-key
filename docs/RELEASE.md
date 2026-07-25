@@ -91,3 +91,9 @@ network calls).
   account session instead.
 - `fastlane produce` requires interactive Apple ID auth; it cannot use
   the API key.
+- From a headless shell (agent/SSH), the archive step fails at CodeSign
+  with `errSecInternalComponent`: the local Apple Development key needs
+  an interactive keychain authorization. Archive with
+  `CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="-"` (ad-hoc, no keychain)
+  instead — the Developer ID export re-signs everything via cloud
+  signing anyway, and that path works headless (verified 1.0.1).

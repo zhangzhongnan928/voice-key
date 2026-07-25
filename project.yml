@@ -42,8 +42,8 @@ targets:
       path: VoiceKey/Resources/Info.plist
       properties:
         CFBundleDisplayName: VoiceKey
-        CFBundleShortVersionString: "1.0.0"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "1.0.1"
+        CFBundleVersion: "3"
         LSUIElement: true
         LSMinimumSystemVersion: "14.0"
         NSMicrophoneUsageDescription: >-
